@@ -1,1 +1,1301 @@
+# Configuración inicial del modo de juego y módulos
+mod = 0  # 0 = Sin modo definido | 1=Consola | 2=Híbrido | 3=Gráficos
+from tkinter import *
+import tkinter.messagebox
+import threading
+import platform
+from random import randrange
 
+POSICION = 1  # Posición inicial en el tablero
+OS = platform.system()  # Detectar sistema operativo
+
+# Almacenamiento de elementos gráficos
+imgDados = []  # Imágenes de dados 
+arregloDados = {}  # Diccionario: clave=número, valor=imagen_dado
+Pan = ""  # Ventana principal
+LB = ""  # Etiqueta de título
+BTN = ""  # Botón de inicio
+desa = False  # Modo desarrollador desactivado
+
+# Configuración inicial del archivo de registro
+with open("log.txt", "w") as g: pass  # Crear/limpiar archivo
+
+# Sistema de registro de eventos del juego
+def escribir(dato):
+    with open("log.txt", "a") as f:
+        f.write(str(dato) + "\n")  # Registrar movimientos y errores
+
+# Variables de control de interfaz
+imgFichas = {}  # Almacena imágenes de fichas por color
+caja_entrada_dados = None  # Campo para ingresar valores manuales
+texto_ingresado = ""  # Almacena texto del campo de entrada
+seleccion = False  # Control de selección en menús
+
+def obtenerDadosIngresados():
+    global caja_entrada_dados, texto_ingresado
+    texto_ingresado = caja_entrada_dados.get()  # Leer valor ingresado
+
+def seleccionarOpcion():
+    global seleccion
+    seleccion = True  # Marcar opción como seleccionada
+
+def Gra():
+    global LB, BTN, Pan, caja_entrada_dados, imgFichas, arregloDados
+
+    Pan = Tk()  # Crear ventana principal
+    Pan.title("Proyecto Final")  # Título de la ventana
+
+    try:  # Carga de recursos gráficos
+        dados = {n: PhotoImage(file=f"c{n}.gif") for n in range(1,7)}
+        colores = ["rojo", "verde", "amarillo", "azul"]
+        # Se actualiza la carga de fichas con los nombres correctos
+        fichas = {color: PhotoImage(file=f"ficha {color}.gif") for color in colores}
+        
+        imgFichas.update(fichas)  # Mapear colores a imágenes
+        arregloDados.update(dados)  # Mapear números a dados
+    except Exception as e:
+        escribir(f"Error gráficos: {str(e)}")  # Registrar fallos
+        raise  # Detener ejecución si hay error
+
+    Pan.configure(bg="white")  # Color de fondo temporal
+    Pan.geometry("700x600+50+50")  # Tamaño y posición inicial
+
+    fondo = PhotoImage(file="fondo.gif")  # Imagen de fondo del tablero
+    LF = Label(Pan, image=fondo)
+    LF.img = fondo  # Conservar referencia en memoria
+    LF.pack()  # Mostrar fondo
+
+    LB = Label(Pan, text="BIENVENIDOS", font=("Times New Roman", 30), bg="#FFD700")
+    LB.place(x=10, y=10)  # Posicionar título
+
+    caja_entrada_dados = Entry(Pan, font=("Arial", 14), state="normal")
+    caja_entrada_dados.place(x=100, y=500)  # Campo para desarrollo
+
+    if OS == "Windows":  # Manejo especial para Windows
+        comando = lambda: threading.Thread(target=IniciarJuego).start()
+    else:  # Otros sistemas operativos
+        comando = IniciarJuego
+
+    BTN = Button(Pan, text="INICIAR", command=comando, 
+                font=("Algerian", 40), bg="#4CAF50", fg="white")
+    BTN.place(x=200, y=200)  # Posición del botón
+
+    Pan.mainloop()  # Iniciar bucle principal de GUI
+
+#-----------------------------------------------------------------------------
+
+from random import randrange
+
+class jugador:
+    def __init__(self, nombre, color, fichas, GanoJugador=False, UltimaFicha=None):
+        # Inicializa las propiedades del jugador: nombre, color, listado de fichas,
+        # estado de victoria, última ficha movida y posición en el ranking
+        self.nombre = nombre
+        self.color = color
+        self.fichas = fichas
+        self.UltimaFicha = UltimaFicha
+        self.GanoJugador = False
+        self.Posicion = 0
+
+    def DefinirUltimaFicha(self, jugadorActual, Ficha):
+        # Registra la última ficha que movió el jugador durante su turno
+        self.UltimaFicha = Ficha
+
+    def _obtener_valor_dado(self, cantidad, desa):
+        # Genera valores aleatorios para los dados o los solicita manualmente
+        # en modo desarrollo (desa=True). Retorna 1 valor o tupla según la cantidad
+        global mod, texto_ingresado, caja_entrada_dados
+        valores = []
+
+        if not desa:
+            # Generación aleatoria de valores para los dados
+            valores = [randrange(1, 7) for _ in range(cantidad)]
+        else:
+            # Modo desarrollo: entrada manual de valores
+            while len(valores) < cantidad:
+                if mod == 3:
+                    # Lógica para interfaz gráfica
+                    caja_entrada_dados.config(state="normal")
+                    caja_entrada_dados.delete(0, 'end')
+                    caja_entrada_dados.insert(0, f"Digite el valor del dado {len(valores) + 1} de {self.nombre}:")
+                    texto_ingresado = ""
+                    while not texto_ingresado:
+                        pass
+                    entrada = texto_ingresado
+                else:
+                    # Entrada por consola
+                    entrada = input(f"Digite el valor del dado {len(valores) + 1} de {self.nombre} (1-6): ")
+
+                # Validación de entrada numérica
+                try:
+                    valor = int(entrada)
+                    if 1 <= valor <= 6:
+                        valores.append(valor)
+                    else:
+                        print("⚠️ Valor fuera de rango. Debe estar entre 1 y 6.")
+                except ValueError:
+                    print("⚠️ Entrada inválida. Ingrese un número entre 1 y 6.")
+
+        return valores[0] if cantidad == 1 else tuple(valores)
+
+    def _actualizar_interfaz_dados(self, valores):
+        # Actualiza las imágenes de los dados en la interfaz gráfica
+        global mod, L_DADOS1, L_DADOS2, arregloDados
+        
+        # Solo ejecuta si está en modo gráfico
+        if mod > 1:
+            try:
+                if isinstance(valores, tuple):
+                    # Actualiza ambos dados
+                    L_DADOS1.config(image=arregloDados.get(valores[0], None), bg="green")
+                    L_DADOS1.img = arregloDados.get(valores[0], None)
+                    L_DADOS2.config(image=arregloDados.get(valores[1], None), bg="green")
+                    L_DADOS2.img = arregloDados.get(valores[1], None)
+                else:
+                    # Actualiza solo el primer dado
+                    L_DADOS1.config(image=arregloDados.get(valores, None), bg="green")
+                    L_DADOS1.img = arregloDados.get(valores, None)
+                    L_DADOS2.config(image=None, bg="white")
+            except Exception as e:
+                print(f"⚠️ Error al actualizar la interfaz de los dados: {e}")
+
+    def TirarUnDado(self, desa):
+        # Simula el lanzamiento de un solo dado y muestra el resultado
+        x = self._obtener_valor_dado(1, desa)
+        print(f"{self.nombre} obtuvo un {x}.")
+        self._actualizar_interfaz_dados(x)
+        return x
+
+    def TirarDosDados(self, desa):
+        # Simula el lanzamiento de dos dados y muestra los resultados
+        x, y = self._obtener_valor_dado(2, desa)
+        print(f"{self.nombre} obtuvo {x} y {y}.")
+        self._actualizar_interfaz_dados((x, y))
+        return x, y
+# ----------------------------------------------------------------------------
+
+class espacio(object):
+    # Clase que representa una casilla del tablero (normales y especiales)
+    def __init__(self, numeroEspacio, etiqueta, x, y, tipoEspacio="normal", colorCasillaEspecial="ninguno", orientacion="Ninguna"):
+        global mod  # Variable global para el modo de juego
+        
+        # Diccionario con todos los atributos de la casilla
+        atributos = {
+            "colorCasillaEspecial": colorCasillaEspecial,  # Color para casillas especiales
+            "tipoEspacio": tipoEspacio,                     # Tipo: normal, inicio, llegada, etc.
+            "numeroEspacio": numeroEspacio,                 # Número identificador (1-101)
+            "etiqueta": etiqueta,                           # Label gráfico de Tkinter
+            "orientacion": orientacion,                     # Dirección (Norte, Sur, Este, Oeste)
+            "NoFichas": 0,          # Contador de fichas presentes
+            "PosFicha": "",         # Posiciones ocupadas por fichas
+            "x": x,                 # Coordenada X en la interfaz
+            "y": y                  # Coordenada Y en la interfaz
+        }
+        
+        # Crea dinámicamente los atributos en el objeto
+        for atributo, valor in atributos.items():
+            setattr(self, atributo, valor)
+        
+        # Configura interactividad en modo gráfico
+        if mod > 1 and etiqueta:  # Si el modo no es texto y hay etiqueta
+            # Vincula eventos del mouse
+            etiqueta.bind("<Enter>", self.Entra)  # Al entrar el cursor
+            etiqueta.bind("<Leave>", self.Sale)   # Al salir el cursor
+
+    # Método para evento "entrar" del mouse
+    def Entra(self, event):
+        global L_NOMBRES  # Label global de información
+        if L_NOMBRES:
+            # Muestra el número de la casilla al posicionar el cursor
+            L_NOMBRES.config(text=str(self.numeroEspacio))
+
+    # Método para evento "salir" del mouse
+    def Sale(self, event):
+        global L_NOMBRES  # Label global de información
+        if L_NOMBRES:
+            # Restaura el texto original al quitar el cursor
+            L_NOMBRES.config(text="NOMBRES")
+#-----------------------------------------------------------------------------
+
+class ficha:  # Clase que representa una ficha de jugador en el tablero
+    def __init__(self, nombreFicha, colorFicha, espacioActual, estadoJuego="inicio"):
+        global mod  # Variable global para el modo de juego
+        # Atributos básicos de la ficha
+        self.colorFicha = colorFicha      # Color identificador
+        self.espacioActual = espacioActual# Casilla actual (objeto espacio)
+        self.estadoJuego = estadoJuego    # Estado: inicio/en_juego/llegada
+        self.nombreFicha = nombreFicha    # Nombre único (ej: 'rojo1')
+        self.PosFicha = ""                # Posición relativa en la casilla
+        self.etiqueta = None              # Elemento gráfico Tkinter
+
+        if mod > 1:  # Configuración para modo gráfico
+            # Crear elemento visual usando imagen predefinida
+            self.etiqueta = Label(Pan, image=imgFichas[colorFicha])
+            self.etiqueta.img = imgFichas[colorFicha]  # Mantener referencia
+            
+            # Posiciones relativas para múltiples fichas en misma casilla
+            posiciones = [
+                (40, 40),  # Esquina superior izquierda
+                (80, 40),  # Esquina superior derecha
+                (40, 80),  # Esquina inferior izquierda
+                (80, 80)   # Esquina inferior derecha
+            ]
+            
+            # Seleccionar posición basada en fichas existentes en la casilla
+            indice = min(self.espacioActual.NoFichas, len(posiciones) - 1)
+            x_offset, y_offset = posiciones[indice]
+
+            # Posicionar ficha en la interfaz
+            self.etiqueta.place(
+                x=self.espacioActual.x + x_offset,
+                y=self.espacioActual.y + y_offset,
+                width=14, height=14
+            )
+            self.xI, self.yI = self.espacioActual.x + x_offset, self.espacioActual.y + y_offset  # Guardar posición inicial
+
+            # Vincular eventos del mouse
+            self.etiqueta.bind("<Enter>", self.Entra)
+            self.etiqueta.bind("<Leave>", self.Sale)
+
+        self.espacioActual.NoFichas += 1  # Actualizar contador de fichas en casilla
+
+    # Evento al pasar mouse sobre la ficha
+    def Entra(self, event):
+        global L_NOMBRES  # Label global de información
+        L_NOMBRES.config(text=self.nombreFicha)  # Mostrar nombre de ficha
+
+    # Evento al quitar mouse de la ficha
+    def Sale(self, event):
+        global L_NOMBRES
+        L_NOMBRES.config(text="NOMBRES")  # Restaurar texto predeterminado
+
+    # Método para obtener información de la ficha
+    def imprimirPropiedades(self):
+        return f"Ficha {self.nombreFicha}: color={self.colorFicha}, espacio={self.espacioActual.numeroEspacio}, estado={self.estadoJuego}"
+
+    # Eliminar ficha gráficamente
+    def eliminarFicha(self):
+        if self.etiqueta:
+            self.etiqueta.destroy()  # Remover widget de la interfaz
+
+    # Mover ficha a nueva posición
+    def cambiarPosicion(self, NuevoEspacio):
+        global mod
+        self.espacioActual.NoFichas -= 1  # Restar de casilla anterior
+
+        # Actualizar posición relativa si quedan fichas
+        if self.espacioActual.NoFichas == 1:
+            self.espacioActual.PosFicha = "A" if self.PosFicha == "B" else "B"
+
+        self.espacioActual = NuevoEspacio  # Asignar nueva casilla
+
+        # Resetear posición si vuelve al inicio
+        if self.espacioActual.tipoEspacio == "inicio" and mod > 1:
+            self.etiqueta.place(x=self.xI, y=self.yI)
+
+        if mod > 1:  # Actualizar posición gráfica
+            # Lógica de posicionamiento según orientación de la casilla
+            if self.espacioActual.NoFichas == 0:
+                # Offset inicial basado en orientación
+                offsets = {
+                    "vertical": (0, 7),    # Centrado vertical
+                    "horizontal": (7, 0)   # Centrado horizontal
+                }
+                x_offset, y_offset = offsets.get(self.espacioActual.orientacion, (0, 0))
+                self.etiqueta.place(
+                    x=self.espacioActual.x + x_offset,
+                    y=self.espacioActual.y + y_offset
+                )
+                self.espacioActual.PosFicha = "A"  # Primera posición
+                self.PosFicha = "A"
+            elif self.espacioActual.NoFichas == 1:
+                # Offset para segunda ficha en misma casilla
+                offsets = {
+                    ("vertical", "B"): (0, 7),
+                    ("vertical", "A"): (0, 33),
+                    ("horizontal", "B"): (7, 0),
+                    ("horizontal", "A"): (33, 0)
+                }
+                x_offset, y_offset = offsets.get(
+                    (self.espacioActual.orientacion, self.espacioActual.PosFicha),
+                    (0, 0)
+                )
+                self.etiqueta.place(
+                    x=self.espacioActual.x + x_offset,
+                    y=self.espacioActual.y + y_offset
+                )
+                self.PosFicha = "A" if self.espacioActual.PosFicha == "B" else "B"
+
+        NuevoEspacio.NoFichas += 1  # Actualizar contador en nueva casilla
+
+    # Método para obtener identificador
+    def num(self):
+        return self.nombreFicha  # Devuelve nombre único de la ficha
+    
+#------------------------------------------------------------------------------
+
+# Constante para margen interno de etiquetas (ajuste fino)
+OFFSET_INTERNO = 1  # Margen interno para labelI
+
+def CrearTablero():
+    """
+    Crea el tablero de juego, compuesto por:
+      - 68 casillas comunes,
+      - 28 casillas especiales (7 por color),
+      - 4 casillas de inicio y
+      - 1 casilla de llegada.
+      
+    @return: Lista de objetos de la clase 'espacio'
+    """
+    global mod
+    tablero = []
+    
+    # --- CASILLAS PRINCIPALES (1-68) ---
+    tipo_casillas = {
+        "salida": [5, 22, 39, 56],
+        "seguro": [12, 17, 29, 34, 46, 51, 63, 68]
+    }
+    
+    for x in range(68):
+        labelF = ""
+        labelI = ""
+        orientacion = ""
+        xF = 0
+        yF = 0
+        if mod > 1:
+            # Creación de etiquetas para fondo (labelF) e interior (labelI)
+            if x+1 in range(1, 9):
+                orientacion = "vertical"
+                z = x
+                if x + 1 == 5:
+                    labelF = Label(Pan, bg="black", borderwidth=0)
+                    labelF.place(x=z*18+250, y=252, width=18, height=54)
+                    labelI = Label(Pan, bg="#ED0D0D", borderwidth=0)
+                    labelI.place(x=z*18+250+OFFSET_INTERNO, y=252+OFFSET_INTERNO, width=18-2*OFFSET_INTERNO, height=54-2*OFFSET_INTERNO)
+                else:
+                    labelF = Label(Pan, bg="black", borderwidth=0)
+                    labelF.place(x=z*18+250, y=252, width=18, height=54)
+                    labelI = Label(Pan, bg="white", borderwidth=0)
+                    labelI.place(x=z*18+250+OFFSET_INTERNO, y=252+OFFSET_INTERNO, width=18-2*OFFSET_INTERNO, height=54-2*OFFSET_INTERNO)
+                xF = z * 18 + 250
+                yF = 252
+            elif x+1 in range(9,17):
+                orientacion = "horizontal"
+                z = x - 8
+                if x+1 == 12:
+                    labelF = Label(Pan, bg="black", borderwidth=0)
+                    labelF.place(x=394, y=z*18+306, width=54, height=18)
+                    labelI = Label(Pan, bg="#ED0D0D", borderwidth=0)
+                    labelI.place(x=394+OFFSET_INTERNO, y=z*18+306+OFFSET_INTERNO, width=54-2*OFFSET_INTERNO, height=18-2*OFFSET_INTERNO)
+                else:
+                    labelF = Label(Pan, bg="black", borderwidth=0)
+                    labelF.place(x=394, y=z*18+306, width=54, height=18)
+                    labelI = Label(Pan, bg="white", borderwidth=0)
+                    labelI.place(x=394+OFFSET_INTERNO, y=z*18+306+OFFSET_INTERNO, width=54-2*OFFSET_INTERNO, height=18-2*OFFSET_INTERNO)
+                xF = 394
+                yF = z * 18 + 306
+            elif x+1 == 17:
+                orientacion = "horizontal"
+                labelF = Label(Pan, bg="black", borderwidth=0)
+                labelF.place(x=448, y=432, width=54, height=18)
+                labelI = Label(Pan, bg="#04B112", borderwidth=0)
+                labelI.place(x=448+OFFSET_INTERNO, y=432+OFFSET_INTERNO, width=54-2*OFFSET_INTERNO, height=18-2*OFFSET_INTERNO)
+                xF = 448
+                yF = 432
+            elif x+1 in range(18,26):
+                orientacion = "horizontal"
+                z = x - 17
+                if x+1 == 22:
+                    labelF = Label(Pan, bg="black", borderwidth=0)
+                    labelF.place(x=502, y=432-z*18, width=54, height=18)
+                    labelI = Label(Pan, bg="#04B112", borderwidth=0)
+                    labelI.place(x=502+OFFSET_INTERNO, y=432-z*18+OFFSET_INTERNO, width=54-2*OFFSET_INTERNO, height=18-2*OFFSET_INTERNO)
+                else:
+                    labelF = Label(Pan, bg="black", borderwidth=0)
+                    labelF.place(x=502, y=432-z*18, width=54, height=18)
+                    labelI = Label(Pan, bg="white", borderwidth=0)
+                    labelI.place(x=502+OFFSET_INTERNO, y=432-z*18+OFFSET_INTERNO, width=54-2*OFFSET_INTERNO, height=18-2*OFFSET_INTERNO)
+                xF = 502
+                yF = 432 - z * 18
+            elif x+1 in range(26,34):
+                orientacion = "vertical"
+                z = x - 25
+                if x+1 == 29:
+                    labelF = Label(Pan, bg="black", borderwidth=0)
+                    labelF.place(x=z*18+556, y=252, width=18, height=54)
+                    labelI = Label(Pan, bg="#04B112", borderwidth=0)
+                    labelI.place(x=z*18+556+OFFSET_INTERNO, y=252+OFFSET_INTERNO, width=18-2*OFFSET_INTERNO, height=54-2*OFFSET_INTERNO)
+                else:
+                    labelF = Label(Pan, bg="black", borderwidth=0)
+                    labelF.place(x=z*18+556, y=252, width=18, height=54)
+                    labelI = Label(Pan, bg="white", borderwidth=0)
+                    labelI.place(x=z*18+556+OFFSET_INTERNO, y=252+OFFSET_INTERNO, width=18-2*OFFSET_INTERNO, height=54-2*OFFSET_INTERNO)
+                xF = z * 18 + 556
+                yF = 252
+            elif x+1 == 34:
+                orientacion = "vertical"
+                labelF = Label(Pan, bg="black", borderwidth=0)
+                labelF.place(x=682, y=198, width=18, height=54)
+                labelI = Label(Pan, bg="#ECC811", borderwidth=0)
+                labelI.place(x=682+OFFSET_INTERNO, y=198+OFFSET_INTERNO, width=18-2*OFFSET_INTERNO, height=54-2*OFFSET_INTERNO)
+                xF = 682
+                yF = 198
+            elif x+1 in range(35,43):
+                orientacion = "vertical"
+                z = x - 34
+                if x+1 == 39:
+                    labelF = Label(Pan, bg="black", borderwidth=0)
+                    labelF.place(x=682-z*18, y=144, width=18, height=54)
+                    labelI = Label(Pan, bg="#ECC811", borderwidth=0)
+                    labelI.place(x=682-z*18+OFFSET_INTERNO, y=144+OFFSET_INTERNO, width=18-2*OFFSET_INTERNO, height=54-2*OFFSET_INTERNO)
+                else:
+                    labelF = Label(Pan, bg="black", borderwidth=0)
+                    labelF.place(x=682-z*18, y=144, width=18, height=54)
+                    labelI = Label(Pan, bg="white", borderwidth=0)
+                    labelI.place(x=682-z*18+OFFSET_INTERNO, y=144+OFFSET_INTERNO, width=18-2*OFFSET_INTERNO, height=54-2*OFFSET_INTERNO)
+                xF = 682 - z * 18
+                yF = 144
+            elif x+1 in range(43,51):
+                orientacion = "horizontal"
+                z = x - 42
+                if x+1 == 46:
+                    labelF = Label(Pan, bg="black", borderwidth=0)
+                    labelF.place(x=502, y=126-z*18, width=54, height=18)
+                    labelI = Label(Pan, bg="#ECC811", borderwidth=0)
+                    labelI.place(x=502+OFFSET_INTERNO, y=126-z*18+OFFSET_INTERNO, width=54-2*OFFSET_INTERNO, height=18-2*OFFSET_INTERNO)
+                else:
+                    labelF = Label(Pan, bg="black", borderwidth=0)
+                    labelF.place(x=502, y=126-z*18, width=54, height=18)
+                    labelI = Label(Pan, bg="white", borderwidth=0)
+                    labelI.place(x=502+OFFSET_INTERNO, y=126-z*18+OFFSET_INTERNO, width=54-2*OFFSET_INTERNO, height=18-2*OFFSET_INTERNO)
+                xF = 502
+                yF = 126 - z * 18
+            elif x+1 == 51:
+                orientacion = "horizontal"
+                labelF = Label(Pan, bg="black", borderwidth=0)
+                labelF.place(x=448, y=0, width=54, height=18)
+                labelI = Label(Pan, bg="#2926DA", borderwidth=0)
+                labelI.place(x=448+OFFSET_INTERNO, y=0+OFFSET_INTERNO, width=54-2*OFFSET_INTERNO, height=18-2*OFFSET_INTERNO)
+                xF = 448
+                yF = 0
+            elif x+1 in range(52,60):
+                orientacion = "horizontal"
+                z = x - 51
+                if x+1 == 56:
+                    labelF = Label(Pan, bg="black", borderwidth=0)
+                    labelF.place(x=394, y=z*18, width=54, height=18)
+                    labelI = Label(Pan, bg="#2926DA", borderwidth=0)
+                    labelI.place(x=394+OFFSET_INTERNO, y=z*18+OFFSET_INTERNO, width=54-2*OFFSET_INTERNO, height=18-2*OFFSET_INTERNO)
+                else:
+                    labelF = Label(Pan, bg="black", borderwidth=0)
+                    labelF.place(x=394, y=z*18, width=54, height=18)
+                    labelI = Label(Pan, bg="white", borderwidth=0)
+                    labelI.place(x=394+OFFSET_INTERNO, y=z*18+OFFSET_INTERNO, width=54-2*OFFSET_INTERNO, height=18-2*OFFSET_INTERNO)
+                xF = 394
+                yF = z*18
+            elif x+1 in range(60,68):
+                orientacion = "vertical"
+                z = x - 59
+                if x+1 == 63:
+                    labelF = Label(Pan, bg="black", borderwidth=0)
+                    labelF.place(x=376-z*18, y=144, width=18, height=54)
+                    labelI = Label(Pan, bg="#2926DA", borderwidth=0)
+                    labelI.place(x=376-z*18+OFFSET_INTERNO, y=144+OFFSET_INTERNO, width=18-2*OFFSET_INTERNO, height=54-2*OFFSET_INTERNO)
+                else:
+                    labelF = Label(Pan, bg="black", borderwidth=0)
+                    labelF.place(x=376-z*18, y=144, width=18, height=54)
+                    labelI = Label(Pan, bg="white", borderwidth=0)
+                    labelI.place(x=376-z*18+OFFSET_INTERNO, y=144+OFFSET_INTERNO, width=18-2*OFFSET_INTERNO, height=54-2*OFFSET_INTERNO)
+                xF = 376 - z * 18
+                yF = 144
+            elif x+1 == 68:
+                orientacion = "vertical"
+                labelF = Label(Pan, bg="black", borderwidth=0)
+                labelF.place(x=250, y=198, width=18, height=54)
+                labelI = Label(Pan, bg="#ED0D0D", borderwidth=0)
+                labelI.place(x=250+OFFSET_INTERNO, y=198+OFFSET_INTERNO, width=18-2*OFFSET_INTERNO, height=54-2*OFFSET_INTERNO)
+                xF = 250
+                yF = 198
+        # Crea el objeto espacio según su tipo
+        if x+1 in [5,22,39,56]:
+            NuevaCasilla = espacio(x + 1, labelI, xF, yF, "salida", "ninguno", orientacion)
+        elif x+1 in [12, 17, 29, 34, 46, 51, 63, 68]:
+            NuevaCasilla = espacio(x + 1, labelI, xF, yF, "seguro", "ninguno", orientacion)
+        else:
+            NuevaCasilla = espacio(x + 1, labelI, xF, yF, 'normal', "ninguno", orientacion)
+        tablero.append(NuevaCasilla)
+
+    # --- CASILLAS DE INICIO (69-72) ---
+    if mod > 1:
+        label = Label(Pan, bg="#ED0D0D", borderwidth=0)
+        label.place(x=250, y=306, height=144, width=144)
+        label = Label(Pan, bg="white", borderwidth=0)
+        label.place(x=255, y=311, height=134, width=134)
+    tablero.append(espacio(69, label, 255, 311, "inicio", "rojo"))
+    if mod > 1:
+        label = Label(Pan, bg="#04B112", borderwidth=0)
+        label.place(x=556, y=306, height=144, width=144)
+        label = Label(Pan, bg="white", borderwidth=0)
+        label.place(x=561, y=311, height=134, width=134)
+    tablero.append(espacio(70, label, 561, 311, "inicio", "verde"))
+    if mod > 1:
+        label = Label(Pan, bg="#ECC811", borderwidth=0)
+        label.place(x=556, y=0, height=144, width=144)
+        label = Label(Pan, bg="white", borderwidth=0)
+        label.place(x=561, y=5, height=134, width=134)
+    tablero.append(espacio(71, label, 561, 5, "inicio", "amarillo"))
+    if mod > 1:
+        label = Label(Pan, bg="#2926DA", borderwidth=2)
+        label.place(x=250, y=0, height=144, width=144)
+        label = Label(Pan, bg="white", borderwidth=0)
+        label.place(x=255, y=5, height=134, width=134)
+    tablero.append(espacio(72, label, 255, 5, "inicio", "azul"))
+
+    # --- CASILLAS ESPECIALES (73-100) ---
+    for x in range(28):
+        if x < 7:
+            z = x
+            if mod > 1:
+                labelF = Label(Pan, bg="black", borderwidth=0)
+                labelF.place(x=z*18+268, y=198, width=18, height=54)
+                labelF = Label(Pan, bg="#ED0D0D", borderwidth=0)
+                labelF.place(x=z*18+268+OFFSET_INTERNO, y=198+OFFSET_INTERNO, width=18-2*OFFSET_INTERNO, height=54-2*OFFSET_INTERNO)
+            NuevaCasilla = espacio(72 + x + 1, labelF, z*18+268, 198, "especial", "rojo", "vertical")
+        elif x < 14:
+            z = x - 7
+            if mod > 1:
+                labelF = Label(Pan, bg="black", borderwidth=0)
+                labelF.place(x=448, y=414-z*18, width=54, height=18)
+                labelF = Label(Pan, bg="#04B112", borderwidth=0)
+                labelF.place(x=448+OFFSET_INTERNO, y=414-z*18+OFFSET_INTERNO, width=54-2*OFFSET_INTERNO, height=18-2*OFFSET_INTERNO)
+            NuevaCasilla = espacio(72 + x + 1, labelF, 448, 414-z*18, "especial", "verde", "horizontal")
+        elif x < 21:
+            z = x - 14
+            if mod > 1:
+                labelF = Label(Pan, bg="black", borderwidth=0)
+                labelF.place(x=664-z*18, y=198, width=18, height=54)
+                labelF = Label(Pan, bg="#ECC811", borderwidth=0)
+                labelF.place(x=664-z*18+OFFSET_INTERNO, y=198+OFFSET_INTERNO, width=18-2*OFFSET_INTERNO, height=54-2*OFFSET_INTERNO)
+            NuevaCasilla = espacio(72 + x + 1, labelF, 664-z*18, 198, "especial", "amarillo", "vertical")
+        else:
+            z = x - 21
+            if mod > 1:
+                labelF = Label(Pan, bg="black", borderwidth=0)
+                labelF.place(x=448, y=z*18+18, width=54, height=18)
+                labelF = Label(Pan, bg="#2926DA", borderwidth=0)
+                labelF.place(x=448+OFFSET_INTERNO, y=z*18+18+OFFSET_INTERNO, width=54-2*OFFSET_INTERNO, height=18-2*OFFSET_INTERNO)
+            NuevaCasilla = espacio(72 + x + 1, labelF, 448, z*18+18, "especial", "azul", "horizontal")
+        tablero.append(NuevaCasilla)
+    
+    lab = ""
+    if mod > 1:
+        imagen = PhotoImage(file="Castillo.gif")
+        lab = Label(Pan, bg="black", borderwidth=0)
+        lab.place(x=394, y=144, width=162, height=162)
+        lab = Label(Pan, image=imagen, borderwidth=0)
+        lab.img = imagen
+        lab.place(x=399, y=149, width=152, height=152)
+    tablero.append(espacio(101, lab, 399, 149, "llegada"))
+    
+    return tablero
+
+#----------------------------------------------------------------------------------------------------
+def CrearJugadoresYFichas(tablero, numeroJugadores, nombres):
+    """
+    Crea las fichas de cada jugador en el tablero y también inicializa cada objeto de la clase 'jugador'.
+    """
+
+    # Mapeo de colores y posiciones iniciales en la cárcel
+    colores_posiciones = {
+        0: ("rojo", 68),
+        1: ("verde", 69),
+        2: ("amarillo", 70),
+        3: ("azul", 71)
+    }
+
+    jugadores = []  # Lista para almacenar los jugadores creados
+
+    for x in range(numeroJugadores):  # Itera según el número de jugadores
+        color, posicionInicial = colores_posiciones[x]  # Obtiene el color y la posición inicial correspondientes
+
+        # Crea las 4 fichas del jugador actual
+        fichas = [ficha(f"{color}{z + 1}", color, tablero[posicionInicial]) for z in range(4)]
+
+        # Crea el jugador y lo agrega a la lista
+        nuevo_jugador = jugador(nombres[x], color, fichas)
+        nuevo_jugador.UltimaFicha = fichas[-1]  # Define la última ficha creada como la última ficha del jugador
+        jugadores.append(nuevo_jugador)
+
+    return jugadores  # Retorna la lista de jugadores creados
+
+#------------------------------------------------------------------------------
+
+def pedirDatos():
+    """
+    Solicita al usuario la cantidad total de jugadores y luego pide el nombre de cada jugador.
+    """
+    global mod, caja_entrada_dados, boton_entrada_dados, texto_ingresado, desa
+    texto_ingresado = ""  
+    n = 0  
+
+    # Configuración gráfica si aplica
+    if mod > 1:
+        Esp = Label(Pan, text="Esperando Jugadores...", bg="white", fg="black", font=("Times New Roman", 32))
+        Esp.place(y=0, x=0)
+
+        if mod < 3:
+            Ins = Label(Pan, text="Digite las entradas en su input de consola...", bg="black", fg="white",
+                        font=("Times New Roman", 17))
+            Ins.place(y=400, x=0)
+        elif mod == 3:
+            caja_entrada_dados = Entry(Pan, font='Helvetica 20', borderwidth=0)
+            caja_entrada_dados.place(x=0, y=500, width=550, height=50)
+            boton_entrada_dados = Button(Pan, text='Continuar', font=("Times New Roman", 20), fg="white",
+                                         command=obtenerDadosIngresados, bg="blue", borderwidth=0)
+            boton_entrada_dados.place(x=550, y=500, width=150, height=50)
+            caja_entrada_dados.delete(0, END)
+            caja_entrada_dados.insert(0, "¿Cuántos jugadores van a ingresar?")
+
+    # Solicita un número válido de jugadores (1 a 4)
+    while not (1 <= n <= 4):
+        n = texto_ingresado if mod >= 3 else input("¿Numero de jugadores?: ")
+        escribir(n)
+        try:
+            n = int(n)
+        except ValueError:
+            n = 0
+
+    nombres = []  
+    Etiquetas = []  
+
+    # Diccionario de colores según el jugador
+    colores = {0: "#ED0D0D", 1: "#04B112", 2: "#ECC811", 3: "#2926DA"}
+
+    for z in range(n):
+        if mod < 3:
+            print(f"Digite el nombre del jugador {z + 1}:")
+        else:
+            caja_entrada_dados.delete(0, END)
+            caja_entrada_dados.insert(0, f"jugador {z + 1}:")
+
+        nombre = ""
+        texto_ingresado = ""
+
+        # Asegura que el nombre tenga entre 1 y 10 caracteres
+        while not (1 <= len(nombre) <= 10):
+            nombre = texto_ingresado if mod >= 3 else input()
+            escribir(nombre)
+
+        # Muestra el nombre en la interfaz gráfica
+        if mod > 1:
+            etiqueta = Label(Pan, text=f"Jugador {z + 1}: {nombre}", font=("Times New Roman", 30), 
+                             bg=colores[z], fg="white")
+            etiqueta.place(y=60 * z + 100)
+            Etiquetas.append(etiqueta)
+
+        nombres.append(nombre)
+
+    # Solicita la contraseña para modo desarrollador
+    x = texto_ingresado if mod == 3 else input("Presione enter para continuar (ó digite la contraseña para modo desarrollador): ")
+    if x == "ADMIN":
+        desa = True
+
+    escribir("\n")
+
+    # Limpieza de interfaz gráfica
+    if mod > 1:
+        for etiqueta in Etiquetas:
+            etiqueta.destroy()
+        Esp.destroy()
+        if mod < 3:
+            Ins.destroy()
+
+    return nombres  
+
+#------------------------------------------------------------------------------
+def ObtenerMayor(listaJugadores):
+    # Crea un arreglo con el valor obtenido en la tirada de cada jugador
+    arreglo = []
+    for i in range(len(listaJugadores)):
+        arreglo.append(listaJugadores[i].valor)
+    return max(arreglo)  # Retorna el valor máximo obtenido
+
+#-----------------------------------------------------------------------------
+
+import tkinter.messagebox
+
+def OrdenDeJuego(ListaJugadores, modoDesarrollador=False):
+    """
+    Determina qué jugador inicia el juego tirando un dado.
+    """
+    global desa, mod
+    
+    if not ListaJugadores:
+        raise ValueError("La lista de jugadores no puede estar vacía.")
+
+    aux = list(ListaJugadores)  # Copia de la lista original
+
+    while len(aux) > 1:
+        # Cada jugador tira un dado y se guarda su valor
+        for jugador in aux:
+            jugador.valor = jugador.TirarUnDado(desa)
+
+        # Obtener el valor máximo y filtrar jugadores empatados
+        max_valor = max(aux, key=lambda j: j.valor).valor
+        aux = [jugador for jugador in aux if jugador.valor == max_valor]
+
+    # Mensaje con el jugador que iniciará el juego
+    mensaje = f"{aux[0].nombre} es el primero en iniciar"
+    
+    if mod < 3:
+        print(mensaje)
+    else:
+        tkinter.messagebox.showinfo("Aviso", mensaje)
+
+    return ListaJugadores.index(aux[0])  # Retorna el índice del jugador que inicia
+
+#----------------------------------------------------------------------------
+
+def GameOver(Jugadores):
+    """
+    Verifica si el juego ha terminado, es decir, si solo queda un jugador sin ganar.
+    """
+    numberWonPlayers = 0  
+    for jugadorActual in Jugadores:
+        if jugadorActual.GanoJugador:
+            numberWonPlayers += 1  
+
+    # Verifica si todos los jugadores menos uno han ganado o si solo hay un jugador y ha ganado.
+    if (numberWonPlayers == len(Jugadores) - 1 and len(Jugadores) > 1) or (numberWonPlayers == 1 and len(Jugadores) == 1):
+        global POSICION  
+        jugadorFaltante = [jug for jug in Jugadores if not jug.GanoJugador]  
+
+        # Si hay un jugador que aún no ha ganado, se le asigna su posición final.
+        if not len(jugadorFaltante) == 0:
+            jugadorFaltante[0].Posicion = POSICION  
+        return True  
+
+    return False 
+ 
+
+#----------------------------------------------------------------------------
+
+def posiblesMovimientos(JugadorActual, resultadoDado, ListaJugadores):
+    # Inicializa una lista para almacenar los posibles movimientos del jugador actual
+    listaPosiblesMovimientos = []
+    
+    # Conjunto que representa las casillas de la cárcel
+    listaCasillasCarcel = {69, 70, 71, 72}
+    
+    # Diccionarios para rastrear la ocupación de casillas por fichas
+    numeros, numeros2 = {}, {}
+    
+    # Recorre todos los jugadores y sus fichas para identificar su ubicación en el tablero
+    for jugador in ListaJugadores:
+        for ficha in jugador.fichas:
+            casillaActual = ficha.espacioActual.numeroEspacio
+
+            # Si la ficha está en una casilla de cárcel, se ignora
+            if casillaActual in listaCasillasCarcel:
+                continue
+
+            # Si la casilla ya tiene una ficha registrada
+            if casillaActual in numeros:
+                numeros[casillaActual][1] += 1
+
+                # Si hay una ficha de distinto color en una casilla especial
+                if numeros[casillaActual][0].colorFicha != ficha.colorFicha and casillaActual in {5, 22, 39, 56}:
+                    numeros2[casillaActual] = [numeros[casillaActual][0], ficha]
+            else:
+                numeros[casillaActual] = [ficha, 1]
+
+    # Identifica casillas bloqueadas (donde hay dos fichas del mismo color)
+    listaBloqueos = {pos for pos, valor in numeros.items() if valor[1] == 2}
+
+    # Identifica casillas con solo una ficha
+    tuplaCasillasUnaFicha = {pos for pos, ficha in numeros.items() if ficha[1] == 1}
+    
+    # Diccionarios con posiciones clave según el color del jugador
+    dat = {"rojo": 5, "verde": 22, "amarillo": 39, "azul": 56}
+    diccionarioSeguros = {"rojo": 68, "verde": 17, "amarillo": 34, "azul": 51}
+    diccionarioPrimeraEspecial = {"rojo": 73, "verde": 80, "amarillo": 87, "azul": 94}
+    
+    # Obtiene datos relevantes del jugador actual
+    colorJugador = JugadorActual.color
+    numeroSeguroSalida = diccionarioSeguros[colorJugador]
+    numeroPrimeraEspecial = diccionarioPrimeraEspecial[colorJugador]
+
+    # Recorre las fichas del jugador actual para evaluar sus posibles movimientos
+    for fichaActual in JugadorActual.fichas:
+        casillaFicha = fichaActual.espacioActual.numeroEspacio
+        nombreFicha = fichaActual.nombreFicha
+        posicionFinal = casillaFicha + resultadoDado
+
+        # Si la ficha está en la cárcel
+        if casillaFicha in listaCasillasCarcel:
+            if resultadoDado == 5 and not (dat[colorJugador] in listaBloqueos and dat[colorJugador] not in numeros2):
+                if dat[colorJugador] in tuplaCasillasUnaFicha and numeros[dat[colorJugador]][0].colorFicha != fichaActual.colorFicha:
+                    return [(f"{nombreFicha} sale de la cárcel a la casilla {dat[colorJugador]}. Captura a {numeros[dat[colorJugador]][0].nombreFicha}.", fichaActual, numeros[dat[colorJugador]][0])]
+                elif dat[colorJugador] in numeros2:
+                    captura = next((f for f in numeros2[dat[colorJugador]] if f.colorFicha != fichaActual.colorFicha), None)
+                    if captura:
+                        return [(f"{nombreFicha} sale de la cárcel a la casilla {dat[colorJugador]}. Captura a {captura.nombreFicha}.", fichaActual, captura)]
+                return [(f"{nombreFicha} sale de la cárcel a la casilla {dat[colorJugador]}.", fichaActual)]
+            continue
+
+        # Evalúa si hay bloqueos en el camino hacia la casilla final
+        bloqueo = any(
+            (x > numeroSeguroSalida and (x + numeroPrimeraEspecial - numeroSeguroSalida - 1) in listaBloqueos) or
+            (x in listaBloqueos) or
+            (x > numeroPrimeraEspecial + 7)
+            for x in range(casillaFicha + 1, posicionFinal + 1)
+        )
+        
+        # Si hay un bloqueo, la ficha no puede moverse
+        if bloqueo:
+            continue
+
+        # Calcula si la ficha alcanza una casilla especial
+        CasillaEspecial = 0
+        if casillaFicha <= numeroSeguroSalida and posicionFinal > numeroSeguroSalida:
+            CasillaEspecial = posicionFinal + (numeroPrimeraEspecial - numeroSeguroSalida - 1)
+            if CasillaEspecial == numeroPrimeraEspecial + 7:
+                CasillaEspecial = 101  # La ficha corona
+
+        # Si la ficha llega a la casilla de coronación
+        if CasillaEspecial == 101 or posicionFinal == numeroPrimeraEspecial + 7:
+            listaPosiblesMovimientos.append((f"{nombreFicha} corona", fichaActual))
+
+        # Si la posición final contiene una ficha enemiga y no es una casilla segura, se captura
+        elif posicionFinal in tuplaCasillasUnaFicha:
+            fichaCapturada = numeros[posicionFinal][0]
+            if fichaCapturada.colorFicha != colorJugador and posicionFinal not in {12, 17, 29, 34, 46, 51, 63, 68, 5, 22, 39, 56}:
+                listaPosiblesMovimientos.append((f"{nombreFicha} captura a {fichaCapturada.nombreFicha} en casilla {posicionFinal}", fichaActual, fichaCapturada))
+            else:
+                listaPosiblesMovimientos.append((f"{nombreFicha} mueve a casilla {posicionFinal}", fichaActual))
+
+        # Si la ficha llega a una casilla especial
+        elif CasillaEspecial:
+            listaPosiblesMovimientos.append((f"{nombreFicha} mueve a casilla {CasillaEspecial}", fichaActual))
+
+        # Movimiento normal sin captura ni especial
+        else:
+            listaPosiblesMovimientos.append((f"{nombreFicha} mueve a casilla {posicionFinal % 68}", fichaActual))
+
+    # Retorna la lista de posibles movimientos o None si no hay movimientos disponibles
+    return listaPosiblesMovimientos if listaPosiblesMovimientos else None
+
+
+#----------------------------------------------------------------------------
+
+def realizarMovimiento(movimientoRealizar, tablero, jugadorActual, Jugadores):
+    """
+    Actualiza las posiciones de las fichas en el tablero según el movimiento especificado.
+
+    Parámetros:
+    - movimientoRealizar: Tupla que contiene:
+        1. Descripción del movimiento (str)
+        2. Objeto Ficha a mover
+        3. Objeto Ficha capturada (opcional, puede ser una cadena vacía si no hay captura)
+    - tablero: Lista que representa el estado actual del tablero.
+    - jugadorActual: Objeto Jugador que está realizando el movimiento.
+    - Jugadores: Lista de todos los objetos Jugador en la partida.
+    """
+    global mod  # Variable global que indica el modo de juego (por ejemplo, gráfico o consola)
+
+    if movimientoRealizar is None:
+        return  # Si no hay movimiento a realizar, se termina la función
+
+    # Diccionarios que mapean colores a números de casillas específicas
+    listaCasillasCarcel = {'rojo': 69, 'verde': 70, 'amarillo': 71, 'azul': 72}
+    listaCasillasSalida = {'rojo': 5, 'verde': 22, 'amarillo': 39, 'azul': 56}
+
+    FichaMover = movimientoRealizar[1]  # Ficha que se va a mover
+    descripcionMovimiento = movimientoRealizar[0]  # Descripción del movimiento
+    FichaCapturada = movimientoRealizar[2] if len(movimientoRealizar) == 3 else None  # Ficha capturada, si la hay
+
+    if 'sale' in descripcionMovimiento:
+        # Maneja la salida de una ficha desde la cárcel
+        if "Captura" in descripcionMovimiento:
+            # Si la salida implica una captura
+            FichaCapturada.estadoJuego = "inicio"  # La ficha capturada vuelve al estado inicial
+            casillaCarcel = listaCasillasCarcel[FichaCapturada.colorFicha]  # Casilla de la cárcel correspondiente
+            FichaCapturada.cambiarPosicion(tablero[casillaCarcel - 1])  # Mueve la ficha capturada a la cárcel
+            FichaMover.cambiarPosicion(tablero[listaCasillasSalida[FichaMover.colorFicha] - 1])  # Mueve la ficha que sale a su casilla de salida
+            FichaMover.estadoJuego = "activo"  # Actualiza el estado de la ficha a activo
+            listaMovi = posiblesMovimientos(jugadorActual, 20, Jugadores)  # Obtiene posibles movimientos adicionales
+            if mod > 1:
+                tkinter.messagebox.showinfo("Captura", f"{FichaMover.nombreFicha} captura a {FichaCapturada.nombreFicha}")
+                tkinter.messagebox.showinfo("Salida", f"{FichaMover.nombreFicha} sale de la cárcel.")
+            if listaMovi:
+                if len(listaMovi) == 1:
+                    realizarMovimiento(listaMovi[0], tablero, jugadorActual, Jugadores)  # Realiza el único movimiento posible
+                else:
+                    realizarMovimiento(opciones(listaMovi, jugadorActual), tablero, jugadorActual, Jugadores)  # Solicita al jugador elegir un movimiento
+        else:
+            # Si la salida no implica una captura
+            FichaMover.cambiarPosicion(tablero[listaCasillasSalida[FichaMover.colorFicha] - 1])  # Mueve la ficha a su casilla de salida
+            FichaMover.estadoJuego = "activo"  # Actualiza el estado de la ficha a activo
+            if mod > 1:
+                tkinter.messagebox.showinfo("Salida", f"{FichaMover.nombreFicha} sale de la cárcel.")
+    elif 'captura' in descripcionMovimiento:
+        # Maneja la captura de una ficha
+        posicionFinal = int(descripcionMovimiento.split()[-1])  # Determina la posición final después de la captura
+        casillaCarcel = listaCasillasCarcel[FichaCapturada.colorFicha]  # Casilla de la cárcel para la ficha capturada
+        FichaCapturada.cambiarPosicion(tablero[casillaCarcel - 1])  # Mueve la ficha capturada a la cárcel
+        FichaCapturada.estadoJuego = "inicio"  # Actualiza el estado de la ficha capturada a inicio
+        FichaMover.cambiarPosicion(tablero[posicionFinal - 1])  # Mueve la ficha que captura a la posición final
+        listaMovi = posiblesMovimientos(jugadorActual, 20, Jugadores)  # Obtiene posibles movimientos adicionales
+        if mod > 1:
+            tkinter.messagebox.showinfo("Captura", f"{FichaMover.nombreFicha} captura a {FichaCapturada.nombreFicha}")
+        if listaMovi:
+            if len(listaMovi) == 1:
+                realizarMovimiento(listaMovi[0], tablero, jugadorActual, Jugadores)  # Realiza el único movimiento posible
+            else:
+                realizarMovimiento(opciones(listaMovi, jugadorActual), tablero, jugadorActual, Jugadores)  # Solicita al jugador elegir un movimiento
+    elif 'mueve' in descripcionMovimiento:
+        # Maneja el movimiento de una ficha sin captura
+        posicionFinal = int(descripcionMovimiento.split()[-1])  # Determina la posición final del movimiento
+        FichaMover.cambiarPosicion(tablero[posicionFinal - 1])  # Mueve la ficha a la posición final
+    elif 'corona' in descripcionMovimiento:
+        # Maneja la coronación de una ficha
+        if mod > 1:
+            FichaMover.eliminarFicha()  # Elimina la ficha de la interfaz gráfica
+        jugadorActual.fichas.remove(FichaMover)  # Elimina la ficha de la lista de fichas del jugador
+        if not jugadorActual.fichas:
+            # Si el jugador no tiene más fichas, ha ganado
+            global POSICION
+            jugadorActual.Posicion = POSICION
+            POSICION += 1
+            jugadorActual.GanoJugador = True
+        if mod > 1:
+            tkinter.messagebox.showinfo("Corona", f"{FichaMover.nombreFicha} corona.")
+        listaMovi = posiblesMovimientos(jugadorActual, 10, Jugadores)  # Obtiene posibles movimientos adicionales
+        if listaMovi:
+            if len(listaMovi) == 1:
+                realizarMovimiento(listaMovi[0], tablero, jugadorActual, Jugadores)  # Realiza el único movimiento posible
+            else:
+                realizarMovimiento(opciones(listaMovi, jugadorActual), tablero, jugadorActual, Jugadores)  # Solicita al jugador elegir un movimiento
+        return
+
+    jugadorActual.DefinirUltimaFicha(jugadorActual, FichaMover)  # Registra la última ficha movida por el jugador
+
+
+#----------------------------------------------------------------------------
+
+def imprimirEstado(Jugador):
+    for ficha in Jugador.fichas:
+        print(ficha.imprimirPropiedades())  # Imprime las propiedades de cada ficha del jugador
+
+#----------------------------------------------------------------------------
+
+def opciones(Lista, JugadorActual):
+    """
+    Permite al jugador seleccionar una opción de movimiento de una lista proporcionada.
+
+    Parámetros:
+    - Lista: Lista de posibles movimientos disponibles para el jugador.
+    - JugadorActual: Objeto que representa al jugador actual.
+
+    Retorna:
+    - La opción seleccionada de la lista de movimientos.
+    """
+    eleccion = 0
+    global mod, caja_entrada_dados, boton_entrada_dados, seleccion
+    seleccion = False
+
+    if mod == 3:
+        # Modo gráfico: se utiliza una interfaz para la selección de opciones.
+        clicked = StringVar(Pan)
+        caja_entrada_dados.config(state="normal")
+        caja_entrada_dados.delete(0, END)
+        caja_entrada_dados.insert(0, f"{JugadorActual.nombre}, seleccione una opción de la lista y oprima continuar.")
+        caja_entrada_dados.config(state="readonly")
+
+        # Se extraen las descripciones de las opciones para mostrarlas en el menú desplegable.
+        options = [opcion[0] for opcion in Lista]
+        clicked.set("Seleccione una opción")
+        drop = OptionMenu(Pan, clicked, *options)
+        drop.place(x=0, y=450, width=700, height=50)
+
+        # Se asigna la función de selección al botón correspondiente.
+        boton_entrada_dados.config(command=seleccionarOpcion)
+
+        # Espera activa hasta que el jugador realice una selección.
+        while not seleccion:
+            if clicked.get() != "Seleccione una opción":
+                seleccion = True
+            pass
+
+        # Se determina la elección basada en la selección del jugador.
+        eleccion = options.index(clicked.get()) + 1
+
+        # Se restaura la funcionalidad original del botón.
+        boton_entrada_dados.config(command=obtenerDadosIngresados)
+        drop.destroy()
+
+    elif mod < 3:
+        # Modo consola: se presenta una lista de opciones para la selección manual.
+        while eleccion <= 0 or eleccion > len(Lista):
+            for idx, opcion in enumerate(Lista, start=1):
+                print(f'{idx} -> {opcion[0]}')
+            print(f'{len(Lista) + 1} -> Ver estado de Fichas')
+
+            try:
+                eleccion = int(input())
+                escribir(eleccion)
+            except ValueError:
+                eleccion = 0
+
+            if eleccion == len(Lista) + 1:
+                imprimirEstado(JugadorActual)
+
+    return Lista[eleccion - 1]
+
+
+#----------------------------------------------------------------------------
+def FuncDados(etiqueta, accion):
+    global dadoSeleccionado  # Variable global para almacenar el dado seleccionado
+    if accion in (0, 1):
+        # Cambia el fondo: rojo si accion es 0, verde si es 1
+        etiqueta.config(bg="red" if accion == 0 else "green")
+    elif accion in (2, 3):
+        # Establece el dado seleccionado restando 1 a la acción (2→1, 3→2)
+        dadoSeleccionado = accion - 1
+
+#----------------------------------------------------------------------------  
+def IniciarJuego():
+
+
+    global desa, mod
+
+    # Si se ha seleccionado un modo de juego gráfico (mod > 1), se destruyen algunos widgets iniciales
+    if mod > 1:
+        global LB, BTN
+        LB.destroy()
+        BTN.destroy()
+
+    # Se solicitan los nombres de los jugadores y se almacenan en una tupla
+    nom = tuple(pedirDatos())  # Retorna una tupla con los nombres de los jugadores
+
+    # Si el modo de juego es gráfico, se configuran y posicionan en pantalla los widgets necesarios (dados, nombres, tablero)
+    if mod > 1:
+        global L_DADOS, L_NOMBRES, L_TABLERO, L_OPCIONES, L_TEXTO, L_DADOS1, L_DADOS2, caja_entrada_dados, boton_entrada_dados
+        L_DADOS1 = Label(Pan, bg="white", font=("Times New Roman", 20))
+        L_DADOS1.place(x=37, y=20, width=175, height=175)
+        L_DADOS2 = Label(Pan, bg="white", font=("Times New Roman", 20))
+        L_DADOS2.place(x=37, y=210, width=175, height=175)
+        L_NOMBRES = Label(Pan, bg="orange", fg="white", text="NOMBRES", font=("Times New Roman", 20))
+        L_NOMBRES.place(x=0, y=400, width=250, height=50)
+        L_TABLERO = Label(Pan, bg="white", fg="white", font=("Times New Roman", 20))
+        L_TABLERO.place(x=250, y=0, width=450, height=450)
+
+    # Se crea el tablero de juego
+    Tablero = CrearTablero()  # Se crea el tablero
+
+    # Se crean los jugadores y sus fichas, utilizando el número de jugadores y sus nombres
+    Jugadores = CrearJugadoresYFichas(Tablero, len(nom), nom)  # Retorna la lista de objetos jugador 'Jugadores'
+
+    # Se determina el orden de juego y se obtiene el índice del primer jugador
+    indicePrimerJugador = OrdenDeJuego(Jugadores)
+
+    # Bucle principal del juego: se repite hasta que se cumpla la condición de GameOver
+    while not GameOver(Jugadores):
+        repetirLanzamiento = True  # Controla si se repite el lanzamiento en caso de obtener dobles
+        contadorParesSeguidos = 0  # Contador para controlar si se han obtenido 3 dobles consecutivos
+
+        # Se selecciona el jugador actual usando un índice cíclico
+        jugadorActual = Jugadores[indicePrimerJugador % len(Jugadores)]
+        # Si el jugador ya ha ganado, se salta su turno
+        if jugadorActual.GanoJugador:
+            continue
+
+        # Bucle para gestionar lanzamientos consecutivos del mismo jugador
+        while repetirLanzamiento:
+            # El jugador tira dos dados y se obtienen los resultados
+            resultadoDado1, resultadoDado2 = jugadorActual.TirarDosDados(desa)
+
+            # Si se obtienen dos dados iguales (doble), se permite repetir el lanzamiento
+            if resultadoDado1 == resultadoDado2:
+                repetirLanzamiento = True
+                contadorParesSeguidos += 1
+
+                # Si se consiguen 3 dobles consecutivos, se envía la última ficha a la cárcel
+                if contadorParesSeguidos == 3:
+                    # Diccionario que asigna la casilla de cárcel según el color de la ficha
+                    listaCasillasCarcel = {'rojo': 69, 'verde': 70, 'amarillo': 71, 'azul': 72}
+                    # Se obtiene la última ficha del jugador
+                    UltimaFichaJugador = jugadorActual.UltimaFicha  
+                    # Se obtiene el nombre de la ficha
+                    nombreFicha = UltimaFichaJugador.nombreFicha  
+                    # Se determina la posición de la cárcel según el color de la ficha
+                    posicionFinal = listaCasillasCarcel[UltimaFichaJugador.colorFicha]  
+                    # Se realiza el movimiento de la ficha a la casilla de la cárcel
+                    realizarMovimiento(['{} mueve a casilla {}'.format(nombreFicha, posicionFinal), UltimaFichaJugador], Tablero, jugadorActual, Jugadores)
+                    # Se restablece el estado de la ficha a 'inicio'
+                    UltimaFichaJugador.estadoJuego = 'inicio'
+                    # Se finaliza el lanzamiento y se reinicia el contador de dobles consecutivos
+                    repetirLanzamiento = False
+                    contadorParesSeguidos = 0
+                    imprimirEstado(jugadorActual)
+                    continue
+            else:
+                # Si no se obtiene un doble, se reinicia el contador y se finaliza el lanzamiento extra
+                contadorParesSeguidos = 0
+                repetirLanzamiento = False
+
+            # Condición especial: si la suma de los dados es 5, se verifica una posible jugada especial
+            if resultadoDado1 + resultadoDado2 == 5:
+                ListaMovi = posiblesMovimientos(jugadorActual, 5, Jugadores)
+                # Si existe exactamente un movimiento y este implica 'salir' (posiblemente salir de la zona de inicio)
+                if ListaMovi and len(ListaMovi) == 1 and "sale" in ListaMovi[0][0]:
+                    realizarMovimiento(ListaMovi[0], Tablero, jugadorActual, Jugadores)
+                    continue
+
+            # Se determinan las posibles jugadas para cada dado por separado
+            ListaMovi1 = posiblesMovimientos(jugadorActual, resultadoDado1, Jugadores)
+            ListaMovi2 = posiblesMovimientos(jugadorActual, resultadoDado2, Jugadores)
+            ListaMoviF = ""
+
+            # Si la jugada asociada al primer dado implica salir, se ejecuta esa jugada y se evalúa la del segundo dado
+            if ListaMovi1 and 'sale' in ListaMovi1[0][0]:
+                realizarMovimiento(ListaMovi1[0], Tablero, jugadorActual, Jugadores)
+                ListaMovi2 = posiblesMovimientos(jugadorActual, resultadoDado2, Jugadores)
+                ListaMoviF = ListaMovi2
+            # De lo contrario, si la jugada asociada al segundo dado implica salir, se ejecuta esa jugada y se evalúa la del primer dado
+            elif ListaMovi2 and "sale" in ListaMovi2[0][0]:
+                realizarMovimiento(ListaMovi2[0], Tablero, jugadorActual, Jugadores)
+                ListaMovi1 = posiblesMovimientos(jugadorActual, resultadoDado1, Jugadores)
+                ListaMoviF = ListaMovi1
+
+            # Si no se han definido listas de movimientos forzados (ListaMoviF no es una lista)
+            if type(ListaMoviF) != list:
+                # Si hay movimientos posibles para ambos dados
+                if ListaMovi1 and ListaMovi2:
+                    global dadoSeleccionado
+                    dadoSeleccionado = 0
+                    # Si se está en modo consola (mod < 3), se pide al jugador que elija cuál dado mover
+                    if mod < 3:
+                        while dadoSeleccionado <= 0 or dadoSeleccionado > 2:
+                            print("Qué dado desea mover (?) :\n1. %d\n2. %d" % (resultadoDado1, resultadoDado2))
+                            dadoSeleccionado = input()
+                            escribir(dadoSeleccionado)
+                            try:
+                                dadoSeleccionado = int(dadoSeleccionado)
+                            except:
+                                dadoSeleccionado = 0
+                    else:
+                        # Si se está en modo gráfico, se configura la caja de entrada y se asocian eventos a los widgets de los dados
+                        caja_entrada_dados.config(state="normal")
+                        caja_entrada_dados.delete(0, END)
+                        caja_entrada_dados.insert(0, "%s seleccione uno de los dados" % jugadorActual.nombre)
+                        caja_entrada_dados.config(state="readonly")
+                        L_DADOS1.bind("<Enter>", lambda x: FuncDados(L_DADOS1, 0))
+                        L_DADOS2.bind("<Enter>", lambda x: FuncDados(L_DADOS2, 0))
+                        L_DADOS1.bind("<Button-1>", lambda x: FuncDados(L_DADOS1, 2))
+                        L_DADOS1.bind("<Leave>", lambda x: FuncDados(L_DADOS1, 1))
+                        L_DADOS2.bind("<Leave>", lambda x: FuncDados(L_DADOS2, 1))
+                        L_DADOS2.bind("<Button-1>", lambda x: FuncDados(L_DADOS2, 3))
+                        # Bucle de espera hasta que el jugador seleccione un dado (variable 'dadoSeleccionado' se actualiza mediante eventos)
+                        while dadoSeleccionado == 0:
+                            pass
+                        # Se configuran los fondos de los dados a verde y se deshabilitan los eventos
+                        L_DADOS1.config(bg="green")
+                        L_DADOS2.config(bg="green")
+                        L_DADOS1.unbind("<Enter>")
+                        L_DADOS2.unbind("<Enter>")
+                        L_DADOS1.unbind("<Button-1>")
+                        L_DADOS1.unbind("<Leave>")
+                        L_DADOS2.unbind("<Leave>")
+                        L_DADOS2.unbind("<Button-1>")
+                    # Se ejecuta un bucle para realizar dos movimientos (uno por cada dado)
+                    for x in range(2):
+                        # Si se eligió el primer dado pero no hay movimientos posibles, se omite
+                        if dadoSeleccionado == 1 and not ListaMovi1:
+                            continue
+                        # Si se eligió el segundo dado pero no hay movimientos posibles, se omite
+                        elif dadoSeleccionado == 2 and not ListaMovi2:
+                            continue
+                        # Si se eligió el primer dado y hay un único movimiento, se realiza ese movimiento
+                        elif dadoSeleccionado == 1 and len(ListaMovi1) == 1:
+                            realizarMovimiento(ListaMovi1[0], Tablero, jugadorActual, Jugadores)
+                            ListaMovi2 = posiblesMovimientos(jugadorActual, resultadoDado2, Jugadores)
+                            dadoSeleccionado = 2
+                        # Si se eligió el primer dado y hay múltiples opciones, se solicita elegir entre ellas
+                        elif dadoSeleccionado == 1 and len(ListaMovi1) > 1:
+                            realizarMovimiento(opciones(ListaMovi1, jugadorActual), Tablero, jugadorActual, Jugadores)
+                            ListaMovi2 = posiblesMovimientos(jugadorActual, resultadoDado2, Jugadores)
+                            dadoSeleccionado = 2
+                        # Si se eligió el segundo dado y hay un único movimiento, se realiza ese movimiento
+                        elif dadoSeleccionado == 2 and len(ListaMovi2) == 1:
+                            realizarMovimiento(ListaMovi2[0], Tablero, jugadorActual, Jugadores)
+                            ListaMovi1 = posiblesMovimientos(jugadorActual, resultadoDado1, Jugadores)
+                            dadoSeleccionado = 1
+                        # Si se eligió el segundo dado y hay múltiples opciones, se solicita elegir entre ellas
+                        elif dadoSeleccionado == 2 and len(ListaMovi2) > 1:
+                            realizarMovimiento(opciones(ListaMovi2, jugadorActual), Tablero, jugadorActual, Jugadores)
+                            ListaMovi1 = posiblesMovimientos(jugadorActual, resultadoDado1, Jugadores)
+                            dadoSeleccionado = 1
+                        # Se imprime el estado actual del jugador tras el movimiento
+                        imprimirEstado(jugadorActual)
+                # Si solo hay movimientos posibles para el primer dado
+                elif ListaMovi1:
+                    if len(ListaMovi1) == 1:
+                        realizarMovimiento(ListaMovi1[0], Tablero, jugadorActual, Jugadores)
+                        imprimirEstado(jugadorActual)
+                    else:
+                        realizarMovimiento(opciones(ListaMovi1, jugadorActual), Tablero, jugadorActual, Jugadores)
+                        imprimirEstado(jugadorActual)
+                # Si solo hay movimientos posibles para el segundo dado
+                elif ListaMovi2:
+                    if len(ListaMovi2) == 1:
+                        realizarMovimiento(ListaMovi2[0], Tablero, jugadorActual, Jugadores)
+                    else:
+                        realizarMovimiento(opciones(ListaMovi2, jugadorActual), Tablero, jugadorActual, Jugadores)
+            # Si se han definido movimientos forzados en ListaMoviF y hay un único movimiento, se ejecuta directamente
+            elif ListaMoviF and len(ListaMoviF) == 1:
+                realizarMovimiento(ListaMoviF[0], Tablero, jugadorActual, Jugadores)
+                imprimirEstado(jugadorActual)
+            # Si hay múltiples movimientos en ListaMoviF, se solicita elegir entre ellos
+            elif ListaMoviF and len(ListaMoviF) > 1:
+                realizarMovimiento(opciones(ListaMoviF, jugadorActual), Tablero, jugadorActual, Jugadores)
+                imprimirEstado(jugadorActual)
+
+        # Se incrementa el índice para pasar al siguiente jugador (ciclo infinito)
+        indicePrimerJugador += 1
+
+    # Al terminar el juego en modo gráfico, se cierra la ventana principal
+    if mod > 1:
+        Pan.quit()
+
+    # Se ordenan los jugadores según su posición final y se muestra el resultado final
+    Jugadores.sort(key=lambda x: x.Posicion)
+    for x in Jugadores:
+        print(x.nombre + " terminó en posición: %d" % x.Posicion)
+
+
+# Bloque principal para seleccionar el modo de juego
+ele = 0
+# Se solicita al usuario que ingrese un valor válido (entre 1 y 3) para el modo de juego
+while ele <= 0 or ele > 3:
+    print("Bienvendos al parchis:\nSeleccione una de las siguientes:\n1.Modo Consola\n2.Modo administrador\n3.Modo Graficos\n")
+    ele = input()
+    try:
+        ele = int(ele)
+    except:
+        ele = 0
+
+# Se asigna el modo de juego seleccionado a la variable global 'mod'
+mod = ele
+
+# Si se selecciona un modo gráfico (mod > 1), se inicia la interfaz gráfica
+if mod > 1:
+    if OS == "Windows":
+        # En Windows, se ejecuta la función gráfica en un hilo separado
+        threading.Thread(target=Gra).start()
+    else:
+        # En otros sistemas operativos, se ejecuta directamente la función gráfica
+        Gra()
+else:
+    # Si se selecciona el modo consola, se inicia el juego directamente
+    IniciarJuego()
